@@ -23,45 +23,101 @@ export default function HistoryPanel({ history, onRefresh }) {
   }
 
   return (
-    <section className="panel">
-      <div className="section-heading">
+    <section className="enterprise-panel" style={{ width: '100%', boxSizing: 'border-box' }}>
+      {/* ── Header with Matching Proportions ── */}
+      <div
+        className="enterprise-panel-header"
+        style={{
+          display: 'flex',
+          justifyContent: 'space-between',
+          alignItems: 'center',
+          paddingBottom: '16px',
+          borderBottom: '1px solid var(--border-color)',
+          marginBottom: '20px'
+        }}
+      >
         <div>
-          <h2>Print History</h2>
-          <p>Every generated serial is stored so reprints reuse the same serial number.</p>
+          <h2 style={{ fontSize: '18px', fontWeight: 700, margin: 0, color: 'var(--enterprise-gray-900)' }}>
+            Audited Print Batches
+          </h2>
+          <p style={{ fontSize: '13px', margin: '4px 0 0', color: 'var(--enterprise-gray-500)' }}>
+            Every generated batch is tracked to prevent duplicate serial assignment.
+          </p>
         </div>
-        <button className="secondary-button" onClick={onRefresh}>Refresh</button>
+        <button
+          className="enterprise-btn-secondary"
+          onClick={onRefresh}
+          style={{ padding: '8px 18px', fontSize: '13px' }}
+        >
+          Refresh
+        </button>
       </div>
 
+      {/* ── Batch List ── */}
       {history.length === 0 ? (
-        <div className="empty-state">No label batches have been generated yet.</div>
+        <div style={{ textAlign: 'center', padding: '48px', color: 'var(--enterprise-gray-400)', fontSize: '14px' }}>
+          No label batches have been recorded yet.
+        </div>
       ) : (
-        <div className="history-list">
+        <div style={{ display: 'flex', flexDirection: 'column', gap: '14px' }}>
           {history.map(batch => (
-            <div className="history-card" key={batch.id}>
-              <div className="history-main">
+            <div
+              key={batch.id}
+              style={{
+                border: '1px solid var(--border-color)',
+                borderRadius: '8px',
+                padding: '16px 20px',
+                backgroundColor: '#ffffff',
+                boxShadow: '0 1px 2px rgba(0, 0, 0, 0.03)'
+              }}
+            >
+              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: '12px' }}>
                 <div>
-                  <strong>{batch.batchNumber}</strong>
-                  <span className="history-time">{new Date(batch.createdAt).toLocaleString()}</span>
+                  <div style={{ fontWeight: 700, fontSize: '15px', fontFamily: 'monospace', color: 'var(--enterprise-primary)' }}>
+                    Batch: {batch.batchNumber}
+                  </div>
+                  <div style={{ fontSize: '12px', color: 'var(--enterprise-gray-500)', marginTop: '4px' }}>
+                    {new Date(batch.createdAt).toLocaleString()}
+                  </div>
                 </div>
-                <div className="history-metrics">
-                  <span>{batch.totalRows} rows</span>
-                  <span>{batch.totalLabelUnits} serials</span>
-                  <span>{batch.totalPhysicalLabels} physical labels</span>
-                  <span className={`status-pill ${batch.status === 'PRINTED' ? 'status-ok' : 'status-warning'}`}>{batch.status}</span>
-                </div>
-                <div className="history-actions">
-                  <a className="secondary-button anchor-button" href={pdfUrl(batch.id)} target="_blank" rel="noreferrer">Open PDF</a>
-                  <a className="secondary-button anchor-button" href={reprintUrl(batch.id)} target="_blank" rel="noreferrer">Reprint</a>
-                  <button className="link-button" onClick={() => openDetail(batch.id)}>{expanded === batch.id ? 'Hide' : 'Details'}</button>
+
+                <div style={{ display: 'flex', gap: '10px', alignItems: 'center' }}>
+                  <span className="enterprise-role-badge" style={{ backgroundColor: 'var(--enterprise-gray-100)', color: 'var(--enterprise-gray-700)', padding: '5px 10px' }}>
+                    {batch.totalRows} Rows
+                  </span>
+                  <span className="enterprise-role-badge" style={{ backgroundColor: 'var(--enterprise-gray-100)', color: 'var(--enterprise-gray-700)', padding: '5px 10px' }}>
+                    {batch.totalPhysicalLabels} Labels
+                  </span>
+                  <a className="enterprise-btn-secondary" href={pdfUrl(batch.id)} target="_blank" rel="noreferrer" style={{ padding: '6px 14px' }}>
+                    View PDF
+                  </a>
+                  <a className="enterprise-btn-secondary" href={reprintUrl(batch.id)} target="_blank" rel="noreferrer" style={{ padding: '6px 14px' }}>
+                    Reprint
+                  </a>
+                  <button className="enterprise-btn-link" onClick={() => openDetail(batch.id)} style={{ fontSize: '13px' }}>
+                    {expanded === batch.id ? 'Hide Details' : 'Details'}
+                  </button>
                 </div>
               </div>
+
               {expanded === batch.id && detail && (
-                <div className="history-detail">
+                <div style={{ marginTop: '16px', borderTop: '1px solid var(--border-color)', paddingTop: '12px' }}>
                   {detail.items.map(item => (
-                    <div key={item.id} className="history-detail-row">
-                      <div><strong>{item.customerPoNumber}</strong> / {item.partNumber}</div>
-                      <div>{item.generatedLabels.length} serial units</div>
-                      <div className="mono">{item.generatedLabels.map(label => `${label.serialNumber} × ${label.copyCount}`).join(', ')}</div>
+                    <div
+                      key={item.id}
+                      style={{
+                        display: 'flex',
+                        justifyContent: 'space-between',
+                        fontSize: '12px',
+                        padding: '8px 0',
+                        color: 'var(--enterprise-gray-700)',
+                        borderBottom: '1px dashed var(--border-color)'
+                      }}
+                    >
+                      <span><strong>{item.customerPoNumber}</strong> / {item.partNumber}</span>
+                      <span style={{ fontFamily: 'monospace' }}>
+                        {item.generatedLabels.map(l => `${l.serialNumber} (x${l.copyCount})`).join(', ')}
+                      </span>
                     </div>
                   ))}
                 </div>

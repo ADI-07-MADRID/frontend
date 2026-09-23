@@ -2,7 +2,6 @@ import { useEffect, useMemo, useState } from 'react';
 import DataTable from './components/DataTable';
 import EditRowModal from './components/EditRowModal';
 import HistoryPanel from './components/HistoryPanel';
-import LabelPreview from './components/LabelPreview';
 import SettingsPanel from './components/SettingsPanel';
 import { generateLabels, getHistory, getSettings, previewLabels, pdfUrl, updateSettings } from './services/api';
 import { parsePastedData } from './utils/parser';
@@ -11,6 +10,9 @@ const SAMPLE_DATA = `Cust PO Num\tInvoice Num\tPKG ID\tItem No.\tPart No.\tItem/
 ASI-PO-11745\t262721284\t\tALT-10\t5014542\tGREASE CART ASSY. COMBI GREASE COLLECTION\t16\t160\t10\t60
 ASI-PO-11746\t262721194\t\tALT-01\t5017530\tFLUE, WELDMENT,EXHAUST, 7-20\t30\t180\t6\t36
 ASI-PO-12708\t262721286\t\tALT-02\t5017531\tFLUE ,WELDMENT, INLET, 7-20\t30\t80\t2\t12`;
+
+const SIDEBAR_COLLAPSED_W = 72;
+const SIDEBAR_EXPANDED_W = 260;
 
 export default function App() {
   const [activeTab, setActiveTab] = useState('generate');
@@ -23,8 +25,21 @@ export default function App() {
   const [history, setHistory] = useState([]);
   const [busy, setBusy] = useState(false);
   const [message, setMessage] = useState(null);
-  const [lastBatch, setLastBatch] = useState(null);
   const [markPrinted, setMarkPrinted] = useState(true);
+
+  // Sidebar Drawer State (Hover + Lock)
+  const [isSidebarHovered, setIsSidebarHovered] = useState(false);
+  const [isSidebarLocked, setIsSidebarLocked] = useState(() => {
+    try { return localStorage.getItem('alto_shaam_sidebar_locked') === 'true'; } catch { return false; }
+  });
+
+  const sidebarExpanded = isSidebarLocked || isSidebarHovered;
+
+  const toggleSidebarLock = () => {
+    const next = !isSidebarLocked;
+    setIsSidebarLocked(next);
+    try { localStorage.setItem('alto_shaam_sidebar_locked', String(next)); } catch { /* ignore */ }
+  };
 
   useEffect(() => {
     loadSettings();
@@ -35,7 +50,7 @@ export default function App() {
     try {
       setSettings(await getSettings());
     } catch (error) {
-      setMessage({ type: 'error', text: `Backend not reachable: ${error.message}` });
+      setMessage({ type: 'error', text: `Backend unreachable: ${error.message}` });
     }
   }
 
@@ -43,7 +58,7 @@ export default function App() {
     try {
       setHistory(await getHistory());
     } catch {
-      // History is non-blocking during startup.
+      // Non-blocking
     }
   }
 
@@ -57,13 +72,11 @@ export default function App() {
     setSelectedIds(new Set());
     setPreviewRow(null);
     setEditingRow(null);
-    setLastBatch(null);
     setMessage(null);
   }
 
   async function processData() {
     setMessage(null);
-    setLastBatch(null);
     try {
       setBusy(true);
       const parsed = parsePastedData(inputText);
@@ -73,16 +86,14 @@ export default function App() {
         ...row
       }));
       setRows(returnedRows);
-      setSelectedIds(new Set(returnedRows.filter(row => row.status !== 'ERROR').map(row => row.clientRowId)));
+      // Select all rows by default
+      setSelectedIds(new Set(returnedRows.map(row => row.clientRowId)));
       setPreviewRow(returnedRows[0] || null);
-      if (returnedRows.some(row => row.status === 'ERROR')) {
-        setMessage({ type: 'error', text: 'Review the red rows before generating labels.' });
-      } else if (returnedRows.some(row => row.status === 'WARNING')) {
-        setMessage({ type: 'warning', text: 'Rows contain review warnings. You can edit them before generating.' });
-      } else if (!response.canGenerate) {
-        setMessage({ type: 'warning', text: 'Complete the Settings tab before generating labels.' });
+
+      if (!response.canGenerate) {
+        setMessage({ type: 'warning', text: 'Missing required configuration. Review Settings before generating.' });
       } else {
-        setMessage({ type: 'success', text: `${returnedRows.length} rows processed successfully.` });
+        setMessage({ type: 'success', text: `${returnedRows.length} rows processed and ready.` });
       }
     } catch (error) {
       setMessage({ type: 'error', text: error.message });
@@ -100,16 +111,16 @@ export default function App() {
   }
 
   function toggleRow(id) {
-    setSelectedIds(previous => {
-      const next = new Set(previous);
+    setSelectedIds(prev => {
+      const next = new Set(prev);
       if (next.has(id)) next.delete(id); else next.add(id);
       return next;
     });
   }
 
   function toggleAll() {
-    setSelectedIds(previous => {
-      const all = rows.every(row => previous.has(row.clientRowId));
+    setSelectedIds(prev => {
+      const all = rows.every(row => prev.has(row.clientRowId));
       return all ? new Set() : new Set(rows.map(row => row.clientRowId));
     });
   }
@@ -121,8 +132,19 @@ export default function App() {
     try {
       await refreshRows(nextRows);
     } catch {
-      // Keep local edit visible if backend preview is temporarily unavailable.
+      // Local edit fallback
     }
+  }
+
+  // Handle user input changes for PACKAGE ID directly in the table
+  function changePackageId(id, value) {
+    setRows(prevRows =>
+      prevRows.map(row =>
+        row.clientRowId === id
+          ? { ...row, pkgId: value, packageId: value }
+          : row
+      )
+    );
   }
 
   async function saveEditedRow(nextRow) {
@@ -131,7 +153,7 @@ export default function App() {
       setBusy(true);
       await refreshRows(nextRows);
       setEditingRow(null);
-      setMessage({ type: 'success', text: 'Row updated and revalidated.' });
+      setMessage({ type: 'success', text: 'Row updated.' });
     } catch (error) {
       setMessage({ type: 'error', text: error.message });
     } finally {
@@ -145,24 +167,19 @@ export default function App() {
 
   async function handleGenerate() {
     if (!rows.length) {
-      setMessage({ type: 'error', text: 'Process data first.' });
+      setMessage({ type: 'error', text: 'Please process data first.' });
       return;
     }
     if (!selectableRows.length) {
       setMessage({ type: 'error', text: 'Select at least one row to generate.' });
       return;
     }
-    const invalid = selectableRows.find(row => row.status === 'ERROR');
-    if (invalid) {
-      setMessage({ type: 'error', text: `Fix row ${invalid.clientRowId} before generating.` });
-      return;
-    }
+
     const pdfWindow = window.open('about:blank', '_blank');
     try {
       setBusy(true);
       const response = await generateLabels(selectableRows, markPrinted);
-      setLastBatch(response);
-      setMessage({ type: 'success', text: `${response.physicalLabels} physical labels generated. Batch ${response.batchNumber}.` });
+      setMessage({ type: 'success', text: `${response.physicalLabels} physical labels generated. Batch: ${response.batchNumber}.` });
       await loadHistory();
       setActiveTab('history');
       if (pdfWindow) {
@@ -180,148 +197,283 @@ export default function App() {
     try {
       const saved = await updateSettings(next);
       setSettings(saved);
-      setMessage({ type: 'success', text: 'Configuration saved.' });
+      setMessage({ type: 'success', text: 'Configuration saved successfully.' });
     } catch (error) {
       setMessage({ type: 'error', text: error.message });
       throw error;
     }
   }
 
-  const previewSerial = useMemo(() => {
-    const supplierId = settings?.supplierId || '0';
-    if (/^\d{1,14}$/.test(supplierId)) {
-      return supplierId + '1'.padStart(15 - supplierId.length, '0');
-    }
-    return '123450000000001';
-  }, [settings]);
+  const viewMetadata = {
+    generate: { title: 'Master Label Generation', desc: 'B-10 Master pallet calculation, sequence allocation, and preview' },
+    history: { title: 'Print History & Ledger', desc: 'Audited reprint-safe serial history, copy counts, and batch records' },
+    settings: { title: 'Master Configuration', desc: 'Supplier ID, Ship-To/Ship-From definitions, and packaging rules' }
+  };
 
   return (
-    <div className="app-shell">
-      <header className="topbar">
-        <div>
-          <div className="brand-line"><span className="brand-mark">AS</span><span>ALTO-SHAAM</span></div>
-          <h1>Master Label System</h1>
-          <p>B-10 label generation, serial control, PDF printing and print history.</p>
+    <div className="enterprise-app-layout">
+      {/* ═══ ALTO-SHAAM SIDEBAR ═══ */}
+      <aside
+        className="enterprise-sidebar"
+        onMouseEnter={() => setIsSidebarHovered(true)}
+        onMouseLeave={() => setIsSidebarHovered(false)}
+        style={{ width: sidebarExpanded ? SIDEBAR_EXPANDED_W : SIDEBAR_COLLAPSED_W }}
+      >
+        <div className="enterprise-sidebar-logo-block" style={{ padding: sidebarExpanded ? '18px 16px' : '14px 8px' }}>
+          <div style={{
+            backgroundColor: '#ffffff',
+            borderRadius: '8px',
+            padding: sidebarExpanded ? '8px 12px' : '6px',
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'center',
+            width: sidebarExpanded ? '100%' : '44px',
+            transition: 'all 200ms ease'
+          }}>
+            <span style={{ fontWeight: 900, color: '#1e3a8a', fontSize: '15px' }}>
+              {sidebarExpanded ? 'ALTO-SHAAM' : 'AS'}
+            </span>
+          </div>
+          <p style={{
+            color: 'rgba(255, 255, 255, 0.9)',
+            fontSize: sidebarExpanded ? '11px' : '9px',
+            margin: '8px 0 0',
+            fontWeight: 600,
+            letterSpacing: '0.04em',
+            textAlign: 'center',
+            whiteSpace: 'nowrap'
+          }}>
+            {sidebarExpanded ? 'MASTER LABEL SYSTEM' : 'MLS'}
+          </p>
+          {sidebarExpanded && (
+            <button
+              onClick={toggleSidebarLock}
+              title={isSidebarLocked ? 'Unlock sidebar drawer' : 'Lock sidebar drawer open'}
+              style={{
+                marginTop: '10px',
+                background: isSidebarLocked ? 'rgba(255, 255, 255, 0.25)' : 'rgba(255, 255, 255, 0.08)',
+                border: '1px solid rgba(255, 255, 255, 0.2)',
+                color: '#fff',
+                borderRadius: '6px',
+                padding: '3px 8px',
+                fontSize: '11px',
+                cursor: 'pointer'
+              }}
+            >
+              {isSidebarLocked ? 'Unlocked View' : 'Lock Open'}
+            </button>
+          )}
         </div>
-        <div className="topbar-meta">
-          <span className="top-badge">6 × 4 in</span>
-          <span className="top-badge">Code 128</span>
-          <span className="top-badge">PostgreSQL</span>
-        </div>
-      </header>
 
-      <nav className="tabs">
-        <button className={activeTab === 'generate' ? 'tab active' : 'tab'} onClick={() => setActiveTab('generate')}>Generate Labels</button>
-        <button className={activeTab === 'history' ? 'tab active' : 'tab'} onClick={() => setActiveTab('history')}>Print History</button>
-        <button className={activeTab === 'settings' ? 'tab active' : 'tab'} onClick={() => setActiveTab('settings')}>Settings</button>
-      </nav>
-
-      {message && <div className={`global-message ${message.type}`}>{message.text}</div>}
-
-      {activeTab === 'generate' && (
-        <main className="content">
-          <section className="panel input-panel">
-            <div className="section-heading">
+        <nav className="enterprise-sidebar-nav">
+          <button
+            className={`enterprise-nav-item ${activeTab === 'generate' ? 'active' : ''}`}
+            onClick={() => setActiveTab('generate')}
+            style={{
+              padding: sidebarExpanded ? '12px 20px' : '12px 0',
+              justifyContent: sidebarExpanded ? 'flex-start' : 'center',
+              gap: sidebarExpanded ? '12px' : '0px'
+            }}
+          >
+            <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+              <path d="M6 18H4a2 2 0 0 1-2-2v-5a2 2 0 0 1 2-2h16a2 2 0 0 1 2 2v5a2 2 0 0 1-2 2h-2" />
+              <path d="M6 9V3a1 1 0 0 1 1-1h10a1 1 0 0 1 1 1v6" />
+              <rect x="6" y="14" width="12" height="8" rx="1" />
+            </svg>
+            {sidebarExpanded && (
               <div>
-                <h2>1. Paste shipment data</h2>
-                <p>Paste the complete Excel range. Pipe-separated Markdown tables and tab-separated Excel data are supported.</p>
+                <div style={{ fontWeight: 600 }}>Generate Labels</div>
+                <div style={{ fontSize: '11px', color: 'var(--enterprise-gray-500)' }}>Batch paste & preview</div>
               </div>
-              <div className="heading-actions">
-                <button className="secondary-button" onClick={showSample}>Load sample</button>
-                <button className="secondary-button" onClick={clearAll}>Clear</button>
-              </div>
-            </div>
-            <textarea
-              className="paste-area"
-              value={inputText}
-              onChange={event => setInputText(event.target.value)}
-              placeholder="Paste the header row followed by your shipment rows here..."
-              spellCheck="false"
-            />
-            <div className="input-footer">
-              <span>{inputText.trim() ? `${inputText.split(/\r?\n/).filter(Boolean).length - 1} data rows detected before parsing` : 'Waiting for pasted data'}</span>
-              <button className="primary-button" disabled={busy || !inputText.trim()} onClick={processData}>{busy ? 'Processing...' : 'Process Data'}</button>
-            </div>
-          </section>
+            )}
+          </button>
 
-          {rows.length > 0 && (
-            <section className="panel review-panel">
-              <div className="section-heading">
-                <div>
-                  <h2>2. Review, validate and edit</h2>
-                  <p>Rule Labels is the B-10 calculation. Print Qty is the physical-label quantity you have requested; the backend revalidates it.</p>
-                </div>
-                <div className="summary-strip">
-                  <span><strong>{rows.length}</strong> rows</span>
-                  <span><strong>{totalRecommended}</strong> rule labels</span>
-                  <span><strong>{totalRequested}</strong> requested</span>
-                </div>
+          <button
+            className={`enterprise-nav-item ${activeTab === 'history' ? 'active' : ''}`}
+            onClick={() => setActiveTab('history')}
+            style={{
+              padding: sidebarExpanded ? '12px 20px' : '12px 0',
+              justifyContent: sidebarExpanded ? 'flex-start' : 'center',
+              gap: sidebarExpanded ? '12px' : '0px'
+            }}
+          >
+            <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+              <path d="M3 12a9 9 0 1 0 9-9 9.75 9.75 0 0 0-6.74 2.74L3 8" />
+              <path d="M3 3v5h5" />
+              <path d="M12 7v5l4 2" />
+            </svg>
+            {sidebarExpanded && (
+              <div>
+                <div style={{ fontWeight: 600 }}>Print History</div>
+                <div style={{ fontSize: '11px', color: 'var(--enterprise-gray-500)' }}>Audit trail & reprints</div>
               </div>
+            )}
+          </button>
 
-              <div className="table-toolbar">
-                <div className="selection-text">{selectableRows.length} selected</div>
-                <div className="toolbar-actions">
-                  <label className="checkbox-label"><input type="checkbox" checked={markPrinted} onChange={event => setMarkPrinted(event.target.checked)} /> Mark as printed</label>
-                  <button className="primary-button" disabled={busy || !selectableRows.length} onClick={handleGenerate}>{busy ? 'Generating...' : 'Generate Master Labels'}</button>
-                </div>
+          <button
+            className={`enterprise-nav-item ${activeTab === 'settings' ? 'active' : ''}`}
+            onClick={() => setActiveTab('settings')}
+            style={{
+              padding: sidebarExpanded ? '12px 20px' : '12px 0',
+              justifyContent: sidebarExpanded ? 'flex-start' : 'center',
+              gap: sidebarExpanded ? '12px' : '0px'
+            }}
+          >
+            <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+              <path d="M12.22 2h-.44a2 2 0 0 0-2 2v.18a2 2 0 0 1-1 1.73l-.43.25a2 2 0 0 1-2 0l-.15-.08a2 2 0 0 0-2.73.73l-.22.38a2 2 0 0 0 .73 2.73l.15.1a2 2 0 0 1 1 1.72v.51a2 2 0 0 1-1 1.74l-.15.09a2 2 0 0 0-.73 2.73l.22.38a2 2 0 0 0 2.73.73l.15-.08a2 2 0 0 1 2 0l.43.25a2 2 0 0 1 1 1.73V20a2 2 0 0 0 2 2h.44a2 2 0 0 0 2-2v-.18a2 2 0 0 1 1-1.73l.43-.25a2 2 0 0 1 2 0l.15.08a2 2 0 0 0 2.73-.73l.22-.39a2 2 0 0 0-.73-2.73l-.15-.08a2 2 0 0 1-1-1.74v-.5a2 2 0 0 1 1-1.74l.15-.09a2 2 0 0 0 .73-2.73l-.22-.38a2 2 0 0 0-2.73-.73l-.15.08a2 2 0 0 1-2 0l-.43-.25a2 2 0 0 1-1-1.73V4a2 2 0 0 0-2-2z" />
+              <circle cx="12" cy="12" r="3" />
+            </svg>
+            {sidebarExpanded && (
+              <div>
+                <div style={{ fontWeight: 600 }}>Settings</div>
+                <div style={{ fontSize: '11px', color: 'var(--enterprise-gray-500)' }}>Supplier configuration</div>
               </div>
+            )}
+          </button>
+        </nav>
+      </aside>
 
-              <DataTable
-                rows={rows}
-                selectedIds={selectedIds}
-                onToggle={toggleRow}
-                onToggleAll={toggleAll}
-                onEdit={setEditingRow}
-                onPreview={setPreviewRow}
-                onPrintQuantityChange={changePrintQuantity}
-              />
-            </section>
+      {/* ═══ MAIN APPARATUS ═══ */}
+      <div className="enterprise-main-content" style={{ marginLeft: sidebarExpanded ? SIDEBAR_EXPANDED_W : SIDEBAR_COLLAPSED_W }}>
+        <header className="enterprise-header">
+          <div className="enterprise-view-title">
+            <h1>{viewMetadata[activeTab].title}</h1>
+            <p>{viewMetadata[activeTab].desc}</p>
+          </div>
+          <div className="enterprise-header-rack">
+            <span className="enterprise-role-badge">Alto-Shaam B-10</span>
+            <span style={{ fontSize: '12px', color: 'var(--enterprise-gray-500)' }}>Master Pallet Label</span>
+          </div>
+        </header>
+
+        {message && (
+          <div className={`enterprise-banner ${message.type}`}>
+            <span>{message.text}</span>
+          </div>
+        )}
+
+        <div className="enterprise-page-body">
+          {activeTab === 'generate' && (
+            <main>
+              {/* Step 1: Input Panel */}
+              <section className="enterprise-panel">
+                <div className="enterprise-panel-header">
+                  <div>
+                    <h2>1. Paste Shipment Manifest Data</h2>
+                    <p>Copy & paste tabular data directly from Excel or pipe-delimited tables.</p>
+                  </div>
+                  <div style={{ display: 'flex', gap: '8px' }}>
+                    <button className="enterprise-btn-secondary" onClick={showSample}>Load Sample</button>
+                    <button className="enterprise-btn-secondary" onClick={clearAll}>Clear</button>
+                  </div>
+                </div>
+
+                <textarea
+                  className="enterprise-textarea"
+                  value={inputText}
+                  onChange={event => setInputText(event.target.value)}
+                  placeholder="Paste tab-separated Excel rows here..."
+                  spellCheck="false"
+                />
+
+                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginTop: '12px' }}>
+                  <span style={{ fontSize: '12px', color: 'var(--enterprise-gray-500)' }}>
+                    {inputText.trim()
+                      ? `${inputText.split(/\r?\n/).filter(Boolean).length - 1} data rows detected`
+                      : 'Awaiting pasted range'}
+                  </span>
+                  <button
+                    className="enterprise-btn-primary"
+                    disabled={busy || !inputText.trim()}
+                    onClick={processData}
+                  >
+                    {busy ? 'Validating...' : 'Process Data'}
+                  </button>
+                </div>
+              </section>
+
+              {/* Step 2: Review Panel */}
+              {rows.length > 0 && (
+                <section className="enterprise-panel">
+                  <div className="enterprise-panel-header">
+                    <div>
+                      <h2>2. Review & Quantity Validation</h2>
+                      <p>Rule Labels calculates physical requirements. Modify print counts directly inline.</p>
+                    </div>
+                    <div style={{ display: 'flex', gap: '12px', alignItems: 'center' }}>
+                      <span className="enterprise-role-badge" style={{ backgroundColor: 'var(--enterprise-gray-100)', color: 'var(--enterprise-gray-700)' }}>
+                        {rows.length} Rows
+                      </span>
+                      <span className="enterprise-role-badge" style={{ backgroundColor: 'var(--enterprise-gray-100)', color: 'var(--enterprise-gray-700)' }}>
+                        {totalRecommended} Rule Labels
+                      </span>
+                      <span className="enterprise-role-badge">
+                        {totalRequested} Requested
+                      </span>
+                    </div>
+                  </div>
+
+                  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '14px' }}>
+                    <span style={{ fontSize: '13px', fontWeight: 600, color: 'var(--enterprise-gray-700)' }}>
+                      {selectableRows.length} Rows Selected for Batch Print
+                    </span>
+                    <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
+                      <label style={{ fontSize: '13px', color: 'var(--enterprise-gray-700)', display: 'flex', alignItems: 'center', gap: '6px', cursor: 'pointer' }}>
+                        <input
+                          type="checkbox"
+                          checked={markPrinted}
+                          onChange={event => setMarkPrinted(event.target.checked)}
+                        />
+                        Mark as Printed
+                      </label>
+                      <button
+                        className="enterprise-btn-primary"
+                        disabled={busy || !selectableRows.length}
+                        onClick={handleGenerate}
+                      >
+                        {busy ? 'Generating PDF...' : 'Generate Master Labels'}
+                      </button>
+                    </div>
+                  </div>
+
+                  <DataTable
+                    rows={rows}
+                    selectedIds={selectedIds}
+                    onToggle={toggleRow}
+                    onToggleAll={toggleAll}
+                    onEdit={setEditingRow}
+                    onPreview={setPreviewRow}
+                    onPrintQuantityChange={changePrintQuantity}
+                    onPackageIdChange={changePackageId}
+                  />
+                </section>
+              )}
+
+            </main>
           )}
 
-          <section className="panel preview-panel">
-            <div className="section-heading">
-              <div>
-                <h2>3. Master Label preview</h2>
-                <p>This preview is a UI representation of the 6 × 4 inch landscape B-10 layout. The PDF is generated by Java/PDFBox on the server.</p>
-              </div>
-            </div>
-            <div className="preview-grid">
-              <div className="preview-card">
-                <LabelPreview row={previewRow} settings={settings} serial={previewSerial} />
-              </div>
-              <div className="preview-notes">
-                <div className="note-card">
-                  <strong>Serial number</strong>
-                  <span>Backend-owned and persisted. Format: supplier ID + unique numeric sequence = exactly 15 digits.</span>
-                </div>
-                <div className="note-card">
-                  <strong>Barcode payload</strong>
-                  <span>Master Serial uses Data Identifier 9S, so the Code 128 value is 9S + the 15-digit serial.</span>
-                </div>
-                <div className="note-card">
-                  <strong>Two-label set</strong>
-                  <span>For an identical pallet, the PDF requirement calls for a set of two identical Master Labels. One serial is therefore assigned per label unit and repeated for its copies.</span>
-                </div>
-                <div className="note-card warning-note">
-                  <strong>Packing List #</strong>
-                  <span>It is a required Master Label field. Your input has Invoice Num and PKG ID, so the application resolves it from settings and lets you override it per row.</span>
-                </div>
-              </div>
-            </div>
-          </section>
-        </main>
+          {activeTab === 'history' && (
+            <main>
+              <HistoryPanel history={history} onRefresh={loadHistory} />
+            </main>
+          )}
+
+          {activeTab === 'settings' && (
+            <main>
+              <SettingsPanel settings={settings} onSave={saveSettings} />
+            </main>
+          )}
+        </div>
+      </div>
+
+      {/* Edit Modal */}
+      {editingRow && (
+        <EditRowModal
+          row={editingRow}
+          onClose={() => setEditingRow(null)}
+          onSave={saveEditedRow}
+        />
       )}
-
-      {activeTab === 'history' && <main className="content"><HistoryPanel history={history} onRefresh={loadHistory} /></main>}
-
-      {activeTab === 'settings' && <main className="content"><SettingsPanel settings={settings} onSave={saveSettings} /></main>}
-
-      {editingRow && <EditRowModal row={editingRow} onClose={() => setEditingRow(null)} onSave={saveEditedRow} />}
-
-      <footer className="footer">
-        <span>Alto-Shaam Master Label System</span>
-        <span>Server-side validation • Persistent serial sequence • Reprint-safe</span>
-      </footer>
     </div>
   );
 }

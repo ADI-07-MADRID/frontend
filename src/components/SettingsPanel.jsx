@@ -21,48 +21,74 @@ export default function SettingsPanel({ settings, onSave }) {
   }
 
   return (
-    <section className="panel settings-panel">
-      <div className="section-heading">
+    <section className="enterprise-panel">
+      <div className="enterprise-panel-header">
         <div>
-          <h2>Master Label Configuration</h2>
-          <p>These values are stored in PostgreSQL and used by the backend label generator.</p>
+          <h2>Alto-Shaam Master Configuration</h2>
+          <p>Global sequence and address definitions stored in PostgreSQL.</p>
         </div>
-        <div className="rule-badge">B-10 / 4 × 6 in / Code 128</div>
+        <span className="enterprise-role-badge">Format B-10</span>
       </div>
 
-      <form onSubmit={submit} className="form-grid">
-        <label>A-S Supplier ID *
-          <input required inputMode="numeric" pattern="[0-9]{1,14}" value={form.supplierId || ''} onChange={e => update('supplierId', e.target.value)} placeholder="1 to 14 numeric digits" />
-          <span className="field-help">The 15-digit serial starts with this ID.</span>
-        </label>
-        <label>Supplier Name
-          <input value={form.supplierName || ''} onChange={e => update('supplierName', e.target.value)} />
-        </label>
-        <label className="wide">Ship From *
-          <textarea required rows="4" value={form.shipFrom || ''} onChange={e => update('shipFrom', e.target.value)} placeholder="Supplier address + A-S assigned supplier ID" />
-        </label>
-        <label className="wide">Ship To *
-          <textarea required rows="4" value={form.shipTo || ''} onChange={e => update('shipTo', e.target.value)} placeholder="A-S receiving address" />
-        </label>
-        <label>Packing List Source
-          <select value={form.packingListSource || 'AUTO'} onChange={e => update('packingListSource', e.target.value)}>
-            <option value="AUTO">AUTO: PKG ID, otherwise Invoice Number</option>
-            <option value="PKG_ID">PKG ID</option>
-            <option value="INVOICE_NUMBER">Invoice Number</option>
-          </select>
-          <span className="field-help">The PDF allows 8 data characters for packing list number. Use Edit to override per row.</span>
-        </label>
-        <label>Default Revision Level
-          <input value={form.defaultRevisionLevel || ''} onChange={e => update('defaultRevisionLevel', e.target.value)} />
-        </label>
-
-        <div className="settings-rule wide">
-          <strong>Serial rule</strong>
-          <span>Supplier ID + zero-padded unique sequence = exactly 15 numeric digits. Barcode payload = 9S + serial number.</span>
+      <form onSubmit={submit} style={{ display: 'grid', gridTemplateColumns: 'repeat(2, 1fr)', gap: '16px' }}>
+        <div>
+          <label style={{ display: 'block', fontSize: '12px', fontWeight: 700, marginBottom: '6px' }}>
+            A-S Supplier ID *
+          </label>
+          <input
+            required
+            pattern="[0-9]{1,14}"
+            style={{ width: '100%', padding: '8px 12px', border: '1px solid var(--border-color)', borderRadius: '6px', fontSize: '13px' }}
+            value={form.supplierId || ''}
+            onChange={e => update('supplierId', e.target.value)}
+            placeholder="1-14 digits"
+          />
+          <span style={{ fontSize: '11px', color: 'var(--enterprise-gray-500)', display: 'block', marginTop: '4px' }}>
+            The 15-digit serial sequence starts with this identifier.
+          </span>
         </div>
 
-        <div className="modal-actions wide">
-          <button className="primary-button" type="submit" disabled={saving}>{saving ? 'Saving...' : 'Save Configuration'}</button>
+        <div>
+          <label style={{ display: 'block', fontSize: '12px', fontWeight: 700, marginBottom: '6px' }}>
+            Supplier Name
+          </label>
+          <input
+            style={{ width: '100%', padding: '8px 12px', border: '1px solid var(--border-color)', borderRadius: '6px', fontSize: '13px' }}
+            value={form.supplierName || ''}
+            onChange={e => update('supplierName', e.target.value)}
+          />
+        </div>
+
+        <div style={{ gridColumn: '1 / -1' }}>
+          <label style={{ display: 'block', fontSize: '12px', fontWeight: 700, marginBottom: '6px' }}>
+            Ship From Address *
+          </label>
+          <textarea
+            required
+            rows="3"
+            style={{ width: '100%', padding: '8px 12px', border: '1px solid var(--border-color)', borderRadius: '6px', fontSize: '13px' }}
+            value={form.shipFrom || ''}
+            onChange={e => update('shipFrom', e.target.value)}
+          />
+        </div>
+
+        <div style={{ gridColumn: '1 / -1' }}>
+          <label style={{ display: 'block', fontSize: '12px', fontWeight: 700, marginBottom: '6px' }}>
+            Ship To Address *
+          </label>
+          <textarea
+            required
+            rows="3"
+            style={{ width: '100%', padding: '8px 12px', border: '1px solid var(--border-color)', borderRadius: '6px', fontSize: '13px' }}
+            value={form.shipTo || ''}
+            onChange={e => update('shipTo', e.target.value)}
+          />
+        </div>
+
+        <div style={{ gridColumn: '1 / -1', display: 'flex', justifyContent: 'flex-end', marginTop: '10px' }}>
+          <button className="enterprise-btn-primary" type="submit" disabled={saving}>
+            {saving ? 'Saving...' : 'Save Configuration'}
+          </button>
         </div>
       </form>
     </section>
